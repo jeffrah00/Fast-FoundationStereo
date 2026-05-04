@@ -86,7 +86,6 @@ def bilinear_sampler1d(img, x_coords, mode='bilinear', align_corners=True):
         x_ceil_clamped = torch.clamp(x_ceil, 0, W-1)
 
         # Create index tensors
-        batch_idx = torch.arange(B, device=img.device).view(B, 1)
         img_floor = torch.gather(img, 3, x_floor_clamped.view(B,1,1,-1).expand(B,C,1,-1).long())
         img_ceil = torch.gather(img, 3, x_ceil_clamped.view(B,1,1,-1).expand(B,C,1,-1).long())
 

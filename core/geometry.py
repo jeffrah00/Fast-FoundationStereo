@@ -34,48 +34,44 @@ class Combined_Geo_Encoding_Volume:
         b, _, h, w = disp.shape
         out_pyramid = []
         for i in range(self.num_levels):
-            with torch.profiler.record_function(f"make disp_lvl {i}"):
-              geo_volume = self.geo_volume_pyramid[i]
-              x0 = dx + disp.view(b*h*w, 1, 1, 1) / 2**i
-            with torch.profiler.record_function(f"bilinear_sampler geo_volume {i}"):
-              if low_memory:
+            geo_volume = self.geo_volume_pyramid[i]
+            x0 = dx + disp.view(b*h*w, 1, 1, 1) / 2**i
+            if low_memory:
                 geo_volume = bilinear_sampler1d(geo_volume, x0, mode='bilinear', align_corners=True)
-              else:
+            else:
                 y0 = torch.zeros_like(x0)
                 disp_lvl = torch.cat([x0,y0], dim=-1)
                 geo_volume = bilinear_sampler(geo_volume, disp_lvl, low_memory=low_memory)
-              geo_volume = geo_volume.view(b, h, w, -1)   #(b, h, h, 3x3xC)
+            geo_volume = geo_volume.view(b, h, w, -1)
 
-            with torch.profiler.record_function(f"make init_coords_lvl {i}"):
-              init_corr = self.init_corr_pyramid[i]   # (B*H*W, 1, 1, W2)
-              init_x0 = coords.view(b*h*w, 1, 1, 1)/2**i - disp.view(b*h*w, 1, 1, 1) / 2**i + dx   # X on right image
-            with torch.profiler.record_function(f"bilinear_sampler init_corr {i}"):
-              if low_memory:
+            init_corr = self.init_corr_pyramid[i]   # (B*H*W, 1, 1, W2)
+            init_x0 = coords.view(b*h*w, 1, 1, 1)/2**i - disp.view(b*h*w, 1, 1, 1) / 2**i + dx
+            if low_memory:
                 init_corr = bilinear_sampler1d(init_corr, init_x0, mode='bilinear', align_corners=True)
-              else:
+            else:
                 init_coords_lvl = torch.cat([init_x0,y0], dim=-1)
                 init_corr = bilinear_sampler(init_corr, init_coords_lvl, low_memory=low_memory)
-              init_corr = init_corr.view(b, h, w, -1)
+            init_corr = init_corr.view(b, h, w, -1)
 
             out_pyramid.append(geo_volume)
             out_pyramid.append(init_corr)
 
-        with torch.profiler.record_function(f"make out_pyramid"):
-          out_pyramid = torch.cat(out_pyramid, dim=-1)
-          return out_pyramid.permute(0, 3, 1, 2)   #(B,C,H,W)
+        out_pyramid = torch.cat(out_pyramid, dim=-1)
+        return out_pyramid.permute(0, 3, 1, 2)   #(B,C,H,W)
 
 
     @staticmethod
     def corr(fmap1, fmap2, normalize=True):
-        with torch.profiler.record_function("build corr"):
-          B, D, H, W1 = fmap1.shape
-          _, _, _, W2 = fmap2.shape
-          fmap1 = fmap1.view(B, D, H, W1)
-          fmap2 = fmap2.view(B, D, H, W2)
-          if normalize:
-            with torch.cuda.amp.autocast(enabled=False):
-              corr = torch.einsum('aijk,aijh->ajkh', F.normalize(fmap1.float(), dim=1), F.normalize(fmap2.float(), dim=1))
-          else:
-            corr = corr.view(B, H, W1, 1, W2).to(fmap1.dtype)
-          corr = corr.view(B, H, W1, 1, W2).to(fmap1.dtype)
-        return corr
+        B, D, H, W1 = fmap1.shape
+        _, _, _, W2 = fmap2.shape
+        if normalize:
+            f1 = F.normalize(fmap1.float(), dim=1)  # (B, D, H, W1)
+            f2 = F.normalize(fmap2.float(), dim=1)  # (B, D, H, W2)
+        else:
+            f1 = fmap1.float()
+            f2 = fmap2.float()
+        # bmm: (B*H, W1, D) x (B*H, D, W2) -> (B*H, W1, W2)
+        f1_bm = f1.permute(0, 2, 3, 1).reshape(B * H, W1, D)
+        f2_bm = f2.permute(0, 2, 1, 3).reshape(B * H, D, W2)
+        corr = torch.bmm(f1_bm, f2_bm).reshape(B, H, W1, W2)
+        return corr.unsqueeze(3).to(fmap1.dtype)  # (B, H, W1, 1, W2)
