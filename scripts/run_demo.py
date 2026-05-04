@@ -84,25 +84,22 @@ if __name__=="__main__":
   padder = InputPadder(img0.shape, divis_by=32, force_square=False)
   img0, img1 = padder.pad(img0, img1)
 
-  logging.info("Warmup forward pass (compilation)...")
+  n_warmup, n_measure = 10, 100
+  logging.info(f"Running {n_warmup} warmup + {n_measure} timed iterations...")
+  times = []
   with torch.amp.autocast('cuda', enabled=True, dtype=AMP_DTYPE):
-    if not args.hiera:
-      model.forward(img0, img1, iters=args.valid_iters, test_mode=True, optimize_build_volume='pytorch1')
-    else:
-      model.run_hierachical(img0, img1, iters=args.valid_iters, test_mode=True, small_ratio=0.5)
-  torch.cuda.synchronize()
-
-  logging.info("Timed forward pass...")
-  torch.cuda.synchronize()
-  t0 = time.perf_counter()
-  with torch.amp.autocast('cuda', enabled=True, dtype=AMP_DTYPE):
-    if not args.hiera:
-      disp = model.forward(img0, img1, iters=args.valid_iters, test_mode=True, optimize_build_volume='pytorch1')
-    else:
-      disp = model.run_hierachical(img0, img1, iters=args.valid_iters, test_mode=True, small_ratio=0.5)
-  torch.cuda.synchronize()
-  elapsed = time.perf_counter() - t0
-  logging.info(f"forward done — {elapsed*1000:.1f} ms  ({1.0/elapsed:.1f} FPS)")
+    for i in range(n_warmup + n_measure):
+      torch.cuda.synchronize()
+      t0 = time.perf_counter()
+      if not args.hiera:
+        disp = model.forward(img0, img1, iters=args.valid_iters, test_mode=True, optimize_build_volume='pytorch1')
+      else:
+        disp = model.run_hierachical(img0, img1, iters=args.valid_iters, test_mode=True, small_ratio=0.5)
+      torch.cuda.synchronize()
+      if i >= n_warmup:
+        times.append(time.perf_counter() - t0)
+  avg_ms = np.mean(times) * 1000
+  logging.info(f"Avg over {n_measure} runs — {avg_ms:.1f} ms  ({1000/avg_ms:.1f} FPS)")
   disp = padder.unpad(disp.float())
   disp = disp.data.cpu().numpy().reshape(H,W).clip(0, None)
 
