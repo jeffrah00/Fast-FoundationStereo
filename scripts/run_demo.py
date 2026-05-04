@@ -84,7 +84,15 @@ if __name__=="__main__":
   padder = InputPadder(img0.shape, divis_by=32, force_square=False)
   img0, img1 = padder.pad(img0, img1)
 
-  logging.info(f"Start forward, 1st time run can be slow due to compilation")
+  logging.info("Warmup forward pass (compilation)...")
+  with torch.amp.autocast('cuda', enabled=True, dtype=AMP_DTYPE):
+    if not args.hiera:
+      model.forward(img0, img1, iters=args.valid_iters, test_mode=True, optimize_build_volume='pytorch1')
+    else:
+      model.run_hierachical(img0, img1, iters=args.valid_iters, test_mode=True, small_ratio=0.5)
+  torch.cuda.synchronize()
+
+  logging.info("Timed forward pass...")
   torch.cuda.synchronize()
   t0 = time.perf_counter()
   with torch.amp.autocast('cuda', enabled=True, dtype=AMP_DTYPE):
