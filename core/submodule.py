@@ -610,7 +610,6 @@ class ChannelAttentionEnhancement(nn.Module):
         """
         super(ChannelAttentionEnhancement, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.max_pool = nn.AdaptiveMaxPool2d(1)
 
         self.fc = nn.Sequential(nn.Conv2d(in_planes, in_planes // 16, 1, bias=False),
                                nn.ReLU(),
@@ -619,7 +618,7 @@ class ChannelAttentionEnhancement(nn.Module):
 
     def forward(self, x):
         avg_out = self.fc(self.avg_pool(x))
-        max_out = self.fc(self.max_pool(x))
+        max_out = self.fc(torch.amax(x, dim=[-2, -1], keepdim=True))
         out = avg_out + max_out
         return self.sigmoid(out)
 
