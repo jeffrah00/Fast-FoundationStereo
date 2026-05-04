@@ -11,7 +11,7 @@ code_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(f'{code_dir}/../')
 from omegaconf import OmegaConf
 from core.utils.utils import InputPadder
-import argparse, torch, imageio, logging, yaml
+import argparse, torch, imageio, logging, yaml, time
 import numpy as np
 from Utils import (
     AMP_DTYPE, set_logging_format, set_seed, vis_disparity,
@@ -85,12 +85,16 @@ if __name__=="__main__":
   img0, img1 = padder.pad(img0, img1)
 
   logging.info(f"Start forward, 1st time run can be slow due to compilation")
+  torch.cuda.synchronize()
+  t0 = time.perf_counter()
   with torch.amp.autocast('cuda', enabled=True, dtype=AMP_DTYPE):
     if not args.hiera:
       disp = model.forward(img0, img1, iters=args.valid_iters, test_mode=True, optimize_build_volume='pytorch1')
     else:
       disp = model.run_hierachical(img0, img1, iters=args.valid_iters, test_mode=True, small_ratio=0.5)
-  logging.info("forward done")
+  torch.cuda.synchronize()
+  elapsed = time.perf_counter() - t0
+  logging.info(f"forward done — {elapsed*1000:.1f} ms  ({1.0/elapsed:.1f} FPS)")
   disp = padder.unpad(disp.float())
   disp = disp.data.cpu().numpy().reshape(H,W).clip(0, None)
 
